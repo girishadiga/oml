@@ -1,0 +1,125 @@
+1) Clean up and drop any table if previously exists for notebook reproducibility
+%script
+BEGIN
+      EXECUTE IMMEDIATE 'DROP Table SUPPLEMENTARY_DEMOGRAPHICS2';
+  EXCEPTION
+      WHEN OTHERS THEN NULL;
+END;
+
+2) Create SUPPLEMENTARY_DEMOGRAPHICS2 table that remove COMMENTS unstructured data for simplicity.
+%sql
+CREATE Table SUPPLEMENTARY_DEMOGRAPHICS2
+  AS (SELECT AFFINITY_CARD, BOOKKEEPING_APPLICATION, BULK_PACK_DISKETTES, CUST_ID, EDUCATION, FLAT_PANEL_MONITOR, HOME_THEATER_PACKAGE, HOUSEHOLD_SIZE, OCCUPATION, OS_DOC_SET_KANJI, PRINTER_SUPPLIES, YRS_RESIDENCE, Y_BOX_GAMES
+      FROM SH.SUPPLEMENTARY_DEMOGRAPHICS);
+
+3) Display SUPPLEMENTARY_DEMOGRAPHICS2 data
+%sql
+Select * from SUPPLEMENTARY_DEMOGRAPHICS2;
+
+4) Display SH.CUSTOMERS table
+%sql
+Select * from SH.CUSTOMERS;
+
+5) Create a CUSTOMERS360 table
+%script
+
+/*  Drop previous table  */
+BEGIN
+      EXECUTE IMMEDIATE 'DROP Table CUSTOMERS360';
+  EXCEPTION
+      WHEN OTHERS THEN NULL;
+END;
+/
+
+/*  JOIN SH.CUSTOMERS and SUPPLEMENTARY_DEMOGRAPHICS tables to create more 360 view of customer  */
+
+Create table CUSTOMERS360 as SELECT a.CUST_ID, a.CUST_GENDER, a.CUST_MARITAL_STATUS, a.CUST_YEAR_OF_BIRTH, a.CUST_INCOME_LEVEL, a.CUST_CREDIT_LIMIT, b.EDUCATION, b.AFFINITY_CARD, b.HOUSEHOLD_SIZE, b.OCCUPATION, b.YRS_RESIDENCE, b.Y_BOX_GAMES
+   FROM SH.CUSTOMERS a, SUPPLEMENTARY_DEMOGRAPHICS2 b
+   WHERE a.CUST_ID = b.CUST_ID;
+
+6) Display CUSTOMERS360 table
+%sql
+SELECT * from CUSTOMERS360;
+
+7) %sql
+select * from CUSTOMERS360_SET
+
+8) Build Anomaly Detection Model (1-Class SVM)
+%script
+
+/*  Build Anomaly Detection Model (1-Class SVM) on SUPPLEMENTARY_DEMOGRAPHICS2 data  */
+
+DECLARE
+v_sql varchar2(100);
+
+BEGIN
+
+/*  drop build settings  */
+BEGIN
+v_sql := 'DROP TABLE CUSTOMERS360_SET';
+EXECUTE IMMEDIATE v_sql;
+DBMS_OUTPUT.PUT_LINE (v_sql ||': succeeded');
+EXCEPTION
+WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE (v_sql ||': drop unneccessary - no table exists');
+END;
+
+/*  drop any previous model.  */
+BEGIN
+v_sql := 'CALL DBMS_DATA_MINING.DROP_MODEL(''CUSTOMERS360MODEL'')';
+EXECUTE IMMEDIATE v_sql;
+DBMS_OUTPUT.PUT_LINE (v_sql ||': succeeded');
+EXCEPTION
+WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE (v_sql ||': drop unneccessary - no model exists');
+END;
+
+
+/*  Create a Build Setting table for Model Build  */
+
+EXECUTE IMMEDIATE 'CREATE TABLE CUSTOMERS360_SET (setting_name VARCHAR2(30),setting_value VARCHAR2(4000))';
+EXECUTE IMMEDIATE 'INSERT INTO CUSTOMERS360_SET (setting_name, setting_value) VALUES (''ALGO_NAME'', ''ALGO_SUPPORT_VECTOR_MACHINES'')';
+EXECUTE IMMEDIATE 'INSERT INTO CUSTOMERS360_SET (setting_name, setting_value) VALUES (''PREP_AUTO'', ''ON'')';
+DBMS_OUTPUT.PUT_LINE ('Created model build settings table: CUSTOMERS360_SET ');
+
+
+/*  Build the 1-Class SVM model.  */
+
+EXECUTE IMMEDIATE 'CALL DBMS_DATA_MINING.CREATE_MODEL(''CUSTOMERS360MODEL'', ''CLASSIFICATION'', ''CUSTOMERS360'', ''CUST_ID   '', null, ''CUSTOMERS360_SET'')';
+DBMS_OUTPUT.PUT_LINE ('Created model: CUSTOMERS360_MODEL ');
+
+End;
+
+9) Display all Customers in Probability of Being Anomalous in Descending Order
+%sql
+SELECT * FROM
+(select CUST_ID, HOUSEHOLD_SIZE, YRS_RESIDENCE, CUST_GENDER, CUST_MARITAL_STATUS, round(prob_fraud*100,2) percent_fraud,
+      rank() over (order by prob_fraud desc) rnk from
+(select CUST_ID, HOUSEHOLD_SIZE, YRS_RESIDENCE, CUST_GENDER, CUST_MARITAL_STATUS, prediction_probability(CUSTOMERS360MODEL, '0' using *) prob_fraud
+from CUSTOMERS360
+))
+order by percent_fraud desc;
+
+10) Graph Customers and their Probability of being Anomalous as a bar chart
+%sql
+/*  Graph all Customers in PERCENT_FRAUD (Values-AVG) vs. YRS_RESIDENCE (Keys) grouped by CUST_MARITAL_STATUS (Groups) as a bar chart*/
+
+SELECT * FROM
+(select CUST_ID, HOUSEHOLD_SIZE, YRS_RESIDENCE, CUST_GENDER, CUST_MARITAL_STATUS, round(prob_fraud*100,2) percent_fraud,
+      rank() over (order by prob_fraud desc) rnk from
+(select CUST_ID, HOUSEHOLD_SIZE, YRS_RESIDENCE, CUST_GENDER, CUST_MARITAL_STATUS, prediction_probability(CUSTOMERS360MODEL, '0' using *) prob_fraud
+from CUSTOMERS360
+))
+where rownum < 1000
+order by percent_fraud desc;
+
+11) Display the Top 5 Most Anomalous Customers
+%sql
+select * from
+(select CUST_ID, HOUSEHOLD_SIZE, YRS_RESIDENCE, CUST_GENDER, CUST_MARITAL_STATUS, round(prob_fraud*100,2) percent_fraud,
+      rank() over (order by prob_fraud desc) rnk from
+(select CUST_ID, HOUSEHOLD_SIZE, YRS_RESIDENCE, CUST_GENDER, CUST_MARITAL_STATUS, prediction_probability(CUSTOMERS360MODEL, '0' using *) prob_fraud
+from CUSTOMERS360
+))
+where rnk <= 5
+order by percent_fraud desc;

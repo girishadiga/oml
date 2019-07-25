@@ -1,0 +1,151 @@
+1) Display the SH.SUPPLEMENTARY_DEMOGRAPHICS data
+%sql
+Select * from SH.SUPPLEMENTARY_DEMOGRAPHICS;
+
+2) Graph HOUSEHOLD_SIZE from SH.SUPPLEMENTARY_DEMOGRAPHICS data as a bar chart
+%sql
+
+/*  Bar chart of HOUSEHOLD_SIZE Key), AFFINITY_CARD (Groups), TOTAL (Sum) (Values)   */
+
+Select count(cust_id) as TOTAL, household_size, affinity_card from SH.SUPPLEMENTARY_DEMOGRAPHICS group by household_size, affinity_card;
+
+3) Clean up and drop table if already exists and create Data table
+%script
+/*  Clean out old table  */
+
+BEGIN
+      EXECUTE IMMEDIATE 'DROP Table SUPPLEMENTARY_DEMOGRAPHICS2';
+  EXCEPTION
+      WHEN OTHERS THEN NULL;
+END;
+/
+
+/*  Create SUPPLEMENTARY_DEMOGRAPHICS2 table  */
+
+CREATE Table SUPPLEMENTARY_DEMOGRAPHICS2
+  AS (SELECT AFFINITY_CARD, BOOKKEEPING_APPLICATION, BULK_PACK_DISKETTES, CUST_ID, EDUCATION, FLAT_PANEL_MONITOR, HOME_THEATER_PACKAGE, HOUSEHOLD_SIZE, OCCUPATION, OS_DOC_SET_KANJI, PRINTER_SUPPLIES, YRS_RESIDENCE, Y_BOX_GAMES
+      FROM SH.SUPPLEMENTARY_DEMOGRAPHICS);
+
+4) Display the SH.SUPPLEMENTARY_DEMOGRAPHICS2 table
+%sql
+SELECT * FROM SUPPLEMENTARY_DEMOGRAPHICS2;
+
+5) Preparatory Steps, Automation of Model Build and Test and Clean up using PL/SQL script
+
+%script
+/* Build a classification model and then generate a lift test result and an apply result.  */
+
+DECLARE
+v_sql varchar2(100);
+
+BEGIN
+
+
+/*  drop build settings  */
+BEGIN
+v_sql := 'DROP TABLE n1_build_settings PURGE';
+EXECUTE IMMEDIATE v_sql;
+DBMS_OUTPUT.PUT_LINE (v_sql ||': succeeded');
+EXCEPTION
+WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE (v_sql ||': drop unneccessary - no table exists');
+END;
+
+/*  drop model  */
+BEGIN
+v_sql := 'CALL DBMS_DATA_MINING.DROP_MODEL(''N1_CLASS_MODEL'')';
+EXECUTE IMMEDIATE v_sql;
+DBMS_OUTPUT.PUT_LINE (v_sql ||': succeeded');
+EXCEPTION
+WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE (v_sql ||': drop unneccessary - no model exists');
+END;
+
+/*  drop apply result  */
+BEGIN
+v_sql := 'DROP TABLE N1_APPLY_RESULT PURGE';
+EXECUTE IMMEDIATE v_sql;
+DBMS_OUTPUT.PUT_LINE (v_sql ||': succeeded');
+EXCEPTION
+WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE (v_sql ||': drop unneccessary - no table exists');
+END;
+
+/*  drop lift result  */
+BEGIN
+v_sql := 'DROP TABLE N1_LIFT_TABLE PURGE';
+EXECUTE IMMEDIATE v_sql;
+DBMS_OUTPUT.PUT_LINE (v_sql ||': succeeded');
+EXCEPTION
+WHEN OTHERS THEN
+DBMS_OUTPUT.PUT_LINE (v_sql ||': drop unneccessary - no table exists');
+END;
+
+
+/*  Split the Data into N1_TRAIN_DATA and N1_TEST_DATA  */
+EXECUTE IMMEDIATE 'CREATE OR REPLACE VIEW N1_TRAIN_DATA AS SELECT * FROM SUPPLEMENTARY_DEMOGRAPHICS2 SAMPLE (60) SEED (1)';
+DBMS_OUTPUT.PUT_LINE ('Created N1_TRAIN_DATA');
+EXECUTE IMMEDIATE 'CREATE OR REPLACE VIEW N1_TEST_DATA AS SELECT * FROM SUPPLEMENTARY_DEMOGRAPHICS2 MINUS SELECT * FROM N1_TRAIN_DATA';
+DBMS_OUTPUT.PUT_LINE ('Created N1_TEST_DATA');
+
+/*  Create a Build Setting (DT) for Model Build  */
+
+EXECUTE IMMEDIATE 'CREATE TABLE n1_build_settings (setting_name VARCHAR2(30),setting_value VARCHAR2(4000))';
+EXECUTE IMMEDIATE 'INSERT INTO n1_build_settings (setting_name, setting_value) VALUES (''ALGO_NAME'', ''ALGO_DECISION_TREE'')';
+EXECUTE IMMEDIATE 'INSERT INTO n1_build_settings (setting_name, setting_value) VALUES (''PREP_AUTO'', ''ON'')';
+DBMS_OUTPUT.PUT_LINE ('Created model build settings table: n1_build_settings ');
+
+/*  Build a Classification Model  */
+
+EXECUTE IMMEDIATE 'CALL DBMS_DATA_MINING.CREATE_MODEL(''N1_CLASS_MODEL'', ''CLASSIFICATION'', ''N1_TRAIN_DATA'', ''CUST_ID'','' AFFINITY_CARD'', ''n1_build_settings'')';
+DBMS_OUTPUT.PUT_LINE ('Created model: N1_CLASS_MODEL ');
+
+/*  Test the Model by generating a apply result and then create a lift result  */
+
+EXECUTE IMMEDIATE 'CALL DBMS_DATA_MINING.APPLY(''N1_CLASS_MODEL'',''N1_TEST_DATA'',''CUST_ID'',''N1_APPLY_RESULT'')';
+DBMS_OUTPUT.PUT_LINE ('Created apply result: N1_APPLY_RESULT ');
+EXECUTE IMMEDIATE 'CALL DBMS_DATA_MINING.COMPUTE_LIFT(''N1_APPLY_RESULT'',''N1_TEST_DATA'',''CUST_ID'',''AFFINITY_CARD'',''N1_LIFT_TABLE'',''1'',''PREDICTION'',''PROBABILITY'',100)';
+DBMS_OUTPUT.PUT_LINE ('Created lift result: N1_LIFT_TABLE ');
+
+
+END;
+
+6) View Model's Cummulative Gains Chart
+%sql
+SELECT QUANTILE_NUMBER, GAIN_CUMULATIVE from N1_LIFT_TABLE;
+
+7) Select and view Likely and unlikely AFFINITY_CARD responsers
+
+%sql
+SELECT * FROM N1_APPLY_RESULT WHERE PREDICTION = ${PREDICTION='1','1'|'0'};
+
+8) Interactively show customer probability to be AFFINITY_CARD responders
+
+%sql
+SELECT A.*, B.* FROM N1_APPLY_RESULT A, N1_TEST_DATA B WHERE PREDICTION = ${PREDICTION='1','1'|'0'} and a.CUST_ID = b.CUST_ID;
+
+9) Interactive Pie Chart of likely AFFINITY_CARD responders
+%sql
+/* Graph pie chart of EDUCATION (Groups), CUST_ID (SUM) (Values);  No Keys  */
+
+SELECT A.*, B.* FROM N1_APPLY_RESULT A, N1_TEST_DATA B WHERE PREDICTION = ${PREDICTION='1','1'|'0'} and a.CUST_ID = b.CUST_ID;
+
+10) Select customers who above threshold probability (20%) of being likely AFFINITY_CARD responders
+%sql
+/*  Displays customers more than 20% likely to respond. */
+
+SELECT * from(
+SELECT CUST_ID, PREDICTION_PROBABILITY(N1_CLASS_MODEL, '1'  USING A.*) prob
+ FROM N1_APPLY_RESULT A)
+ WHERE prob > 0.2;
+
+ 11) Real-time prediction
+
+ %sql
+Select prediction_probability(N1_CLASS_MODEL, '1'
+  USING '3' as HOUSEHOLD_SIZE, 1 as YRS_RESIDENCE, 0 as Y_BOX_GAMES)
+from dual;
+
+12) Interactive selection of likely Affinity_Card reponders selected by HOUSEHOLD_SIZE
+%sql
+SELECT A.*, B.* FROM N1_APPLY_RESULT A, N1_TEST_DATA B WHERE HOUSEHOLD_SIZE = ${HOUSEHOLD_SIZE='1','1'|'3'| '9+'} and a.CUST_ID = b.CUST_ID;
