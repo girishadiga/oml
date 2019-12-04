@@ -1,3 +1,9 @@
+ValleyML.AI Conference:
+
+Developer Signup: http://bit.ly/OracleMR 
+
+Setup cloud account: http://bit.ly/DEC2MLHOL
+
 Oracle Machine Learning Documentation : https://www.oracle.com/database/technologies/datawarehouse-bigdata/machine-learning.html
 
 Oracle Data Mining : 
