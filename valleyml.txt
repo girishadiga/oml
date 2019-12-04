@@ -1,0 +1,16 @@
+Oracle Machine Learning Documentation : https://www.oracle.com/database/technologies/datawarehouse-bigdata/machine-learning.html
+
+Oracle Data Mining : 
+
+  Users Guide: https://docs.oracle.com/en/database/oracle/oracle-database/19/dmprg/data-mining-SQL.html#GUID-46E7420D-17D0-4683-B9F3-6AB42E9B1EB6
+
+  Algorithms: https://docs.oracle.com/en/database/oracle/oracle-database/19/dmcon/introductions.html#GUID-E9D74E57-FEE4-41B9-ACDE-C46B03C20278
+  
+  API's: https://docs.oracle.com/en/database/oracle/oracle-database/19/dmprg/data-mining-SQL.html#GUID-46E7420D-17D0-4683-B9F3-6AB42E9B1EB6
+  
+  https://docs.oracle.com/en/database/oracle/oracle-database/19/arpls/DBMS_DATA_MINING.html#GUID-7B9145D4-831F-46B3-977F-01AF77ACA4A1
+  
+  Lab:
+  https://oracle.github.io/learning-library/workshops/adwc4dev/?version=Self-Guided&page=L300.md
+  
+  https://blogs.oracle.com/ai/release-machine-learning-models-as-a-service-on-autonomous-database
